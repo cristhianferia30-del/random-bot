@@ -266,7 +266,7 @@ def build_caption(final_title):
     options = [
         f"Última hora: {final_title}. ¿Casualidad o algo más?",
         f"Última hora: ya empezó a moverse en redes {final_title}. Algunos dicen que parece falso, otros no tanto.",
-        f"Última hora en modo Random: {final_title}. ¿Tú qué ves aquí?"
+        f"Última hora: {final_title}. ¿Tú qué ves aquí?"
     ]
     return random.choice(options)
 
