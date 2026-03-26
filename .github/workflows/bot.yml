@@ -27,16 +27,19 @@ jobs:
           python -V
           pip install -r requirements.txt
 
+      - name: debug files
+        run: |
+          echo "=== PWD ==="
+          pwd
+          echo "=== LS ==="
+          ls -la
+          echo "=== MAIN.PY ==="
+          cat main.py
+
       - name: run bot
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           FACEBOOK_PAGE_TOKEN: ${{ secrets.FACEBOOK_PAGE_TOKEN }}
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
         run: |
-          echo "BOT YML ACTUALIZADO"
-          pwd
-          ls -la
-          echo "----- MAIN.PY INICIO -----"
-          sed -n '1,80p' main.py
-          echo "----- MAIN.PY FIN -----"
-          python main.py
+          python -u main.py
