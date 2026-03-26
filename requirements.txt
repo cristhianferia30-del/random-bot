@@ -1,0 +1,8 @@
+openai
+moviepy
+pillow
+pytrends
+gtts
+requests
+imageio
+imageio-ffmpeg
