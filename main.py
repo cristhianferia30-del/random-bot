@@ -9,7 +9,7 @@ import hashlib
 import requests
 import feedparser
 from datetime import datetime, timezone
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
 
@@ -52,7 +52,7 @@ CATEGORY_KEYWORDS = {
     "meme": ["meme", "viral", "redes", "tiktok", "instagram", "x ", "twitter", "parodia", "broma", "burla"],
     "misterio": ["ovni", "fantasma", "misterio", "extraño", "raro", "aparición", "luces", "sombra", "paranormal", "terror"],
     "deporte": ["futbol", "box", "boxeo", "ufc", "deporte", "liga", "gol", "pelea", "partido", "nba", "champions"],
-    "politica": ["senado", "presidente", "gobierno", "diputado", "politica", "eleccion", "reforma", "marcha"],
+    "politica": ["senado", "presidente", "gobierno", "diputado", "politica", "eleccion", "reforma", "marcha", "debate"],
     "famosos": ["actor", "actriz", "cantante", "influencer", "famoso", "famosa", "celebridad", "televisa", "novela"],
     "noticia": ["volcan", "volcán", "sismo", "tormenta", "lluvia", "huracan", "huracán", "incendio", "accidente", "choque", "explosion", "explosión"],
     "internacional": ["eeuu", "usa", "europa", "china", "rusia", "ucrania", "internacional", "mundo", "global"],
@@ -65,6 +65,12 @@ SLOT_PREFS = {
     "21:00": ["famosos", "deporte", "meme"],
     "22:30": ["misterio", "meme", "famosos"],
 }
+
+SENSITIVE_WORDS = [
+    "murió", "murio", "muerte", "falleció", "fallecio", "asesinado", "asesinada",
+    "detiene", "detenido", "detenida", "ice", "policía", "policia", "arma",
+    "violencia", "hospital", "cadáver", "cadaver", "suicidio"
+]
 
 def load_state():
     if not os.path.exists(STATE_FILE):
@@ -122,13 +128,6 @@ def current_slot():
     now = datetime.now(timezone.utc)
     h = now.hour
     m = now.minute
-
-    # UTC que equivale a MX aprox:
-    # 12:00 MX -> 18:00 UTC
-    # 15:00 MX -> 21:00 UTC
-    # 18:00 MX -> 00:00 UTC
-    # 21:00 MX -> 03:00 UTC
-    # 22:30 MX -> 04:30 UTC
     if h == 18 and m < 30:
         return "12:00"
     if h == 21 and m < 30:
@@ -178,7 +177,6 @@ def pick_topic(items, state):
         seen.add(h)
 
         score = item["freshness"]
-
         if item["category"] in prefs:
             score += 4
 
@@ -204,15 +202,32 @@ def pick_topic(items, state):
     top = ranked[:8]
     return random.choice(top)
 
+def is_sensitive(text):
+    txt = norm(text)
+    return any(w in txt for w in SENSITIVE_WORDS)
+
+def sanitize_title_for_visuals(title):
+    txt = re.sub(r"[-–|].*$", "", title).strip()
+    txt = re.sub(r"[\"“”'‘’]", "", txt)
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt[:120]
+
 def build_final_title(item):
-    t = item["title"]
+    t = sanitize_title_for_visuals(item["title"])
     cat = item["category"]
+
+    if is_sensitive(t):
+        if cat == "famosos":
+            return "momento extraño y viral inspirado en una noticia reciente de farándula"
+        if cat == "politica":
+            return "momento intenso inspirado en una noticia política reciente"
+        return "escena viral inspirada en una noticia reciente"
 
     if cat == "meme":
         bases = [
-            "escena viral absurda pero creíble basada en tendencia fresca",
-            "momento viral estilo meme convertido en foto hiperrealista",
-            "imagen extraña y chistosa inspirada en lo que explota en redes"
+            "imagen extraña y chistosa inspirada en lo que explota en redes",
+            "momento viral raro convertido en escena hiperrealista",
+            "escena absurda pero creíble basada en tendencia fresca"
         ]
     elif cat == "misterio":
         bases = [
@@ -222,27 +237,27 @@ def build_final_title(item):
         ]
     elif cat == "famosos":
         bases = [
+            "momento extraño y viral inspirado en farándula actual",
             "escena hiperrealista inspirada en famosos del momento",
-            "imagen viral relacionada con celebridades que está explotando en redes",
-            "momento extraño y viral inspirado en farándula actual"
+            "imagen viral relacionada con celebridades del momento"
         ]
     elif cat == "deporte":
         bases = [
-            "imagen viral inspirada en deporte y pelea del momento",
-            "momento tenso convertido en escena hiperrealista de tendencia deportiva",
-            "escena fuerte basada en una tendencia deportiva reciente"
+            "escena intensa inspirada en una tendencia deportiva reciente",
+            "momento viral basado en deporte del momento",
+            "imagen fuerte inspirada en una noticia deportiva fresca"
         ]
     elif cat == "politica":
         bases = [
-            "imagen viral inspirada en una noticia política caliente",
-            "momento de debate convertido en escena hiperrealista actual",
-            "escena intensa basada en tema político fresco"
+            "momento tenso inspirado en debate reciente",
+            "escena intensa basada en una noticia política fresca",
+            "imagen viral inspirada en un tema político caliente"
         ]
     else:
         bases = [
             "escena viral inspirada en una noticia fresca en mexico",
-            "momento impactante basado en un tema que se está moviendo en redes",
-            "imagen hiperrealista basada en una noticia reciente"
+            "imagen hiperrealista basada en una noticia reciente",
+            "momento impactante basado en un tema que se mueve en redes"
         ]
 
     return f"{random.choice(bases)} relacionado con {t}"
@@ -251,40 +266,47 @@ def build_caption(final_title):
     options = [
         f"Última hora: {final_title}. ¿Casualidad o algo más?",
         f"Última hora: ya empezó a moverse en redes {final_title}. Algunos dicen que parece falso, otros no tanto.",
-        f"Última hora: {final_title}. ¿Tú qué ves aquí?"
+        f"Última hora en modo Random: {final_title}. ¿Tú qué ves aquí?"
     ]
-    return random.choice(options)
     return random.choice(options)
 
 def build_prompts(item, final_title, n=3):
     cat = item["category"]
-    source = item["title"]
+    source = sanitize_title_for_visuals(item["title"])
+    sensitive = is_sensitive(source) or is_sensitive(final_title)
 
     base_real = "vertical 9:16, hiperrealista, captado con celular, iluminación real, nada de caricatura, sin texto dentro de la imagen"
-    prompts = []
+
+    if sensitive:
+        generic = [
+            f"Primera toma amplia. {final_title}. {base_real}. Evita personas reconocibles o figuras públicas específicas. No mostrar violencia, arrestos, muerte ni heridas. Escena simbólica y segura.",
+            f"Segunda toma media. {final_title}. {base_real}. Mantener vibra de noticia fresca sin personas identificables ni temas gráficos.",
+            f"Tercera toma final. {final_title}. {base_real}. Imagen viral segura, sin rostros famosos ni contenido sensible explícito."
+        ]
+        return generic[:n]
 
     scene1 = f"Primera toma amplia. {final_title}. Inspirado en: {source}. {base_real}."
-    scene2 = f"Segunda toma media, más cerca del momento principal. {final_title}. Misma historia, misma vibra visual, más detalle en rostros/objetos/entorno. {base_real}."
+    scene2 = f"Segunda toma media, más cerca del momento principal. {final_title}. Misma historia, misma vibra visual, más detalle en entorno y objetos. {base_real}."
     scene3 = f"Tercera toma cercana o final. {final_title}. Misma historia, detalle fuerte y creíble para volverse viral. {base_real}."
 
     if cat == "meme":
         scene1 += " La escena debe verse absurda pero creíble y muy compartible en redes."
-        scene2 += " La situación debe mantener humor raro sin romper el realismo."
+        scene2 += " Mantener humor raro sin romper el realismo."
         scene3 += " Debe parecer el fotograma más viral del clip."
     elif cat == "misterio":
         scene1 += " Debe sentirse inquietante, raro y real."
         scene2 += " Puede incluir sombras, luces, cielo raro, calle o colonia."
         scene3 += " Debe parecer evidencia captada en el momento."
     elif cat == "famosos":
-        scene1 += " La escena debe verse como paparazzi o foto viral."
-        scene2 += " Mantener estética real de red social o nota de farándula."
-        scene3 += " Debe parecer el momento más comentado."
+        scene1 += " No representar personas reales específicas ni rostros idénticos; solo vibra general de farándula."
+        scene2 += " Mantener estética real de red social sin copiar celebridades reales."
+        scene3 += " Debe parecer una escena viral inspirada, no retrato exacto."
     elif cat == "deporte":
         scene1 += " La escena debe verse intensa, rápida y muy compartible."
         scene2 += " Mantener energía deportiva realista."
         scene3 += " Debe parecer el frame que todos comentan."
     elif cat == "politica":
-        scene1 += " La escena debe verse como momento tenso de debate o noticia."
+        scene1 += " La escena debe verse como momento de debate o noticia, sin representar políticos reales reconocibles."
         scene2 += " Mantener tono serio pero viral."
         scene3 += " Debe parecer la imagen más fuerte del tema."
     else:
@@ -292,17 +314,36 @@ def build_prompts(item, final_title, n=3):
         scene2 += " Mantener coherencia visual."
         scene3 += " Debe cerrar fuerte."
 
-    prompts.extend([scene1, scene2, scene3])
-    return prompts[:n]
+    return [scene1, scene2, scene3][:n]
 
-def generate_image(prompt, idx):
+def safe_fallback_prompt(final_title, idx):
+    return f"""
+Toma {idx} para un reel vertical 9:16.
+Escena hiperrealista captada con celular en México.
+Tema general: {final_title}.
+Sin personas famosas reconocibles.
+Sin violencia, sin arrestos, sin muerte, sin heridas, sin texto dentro de la imagen.
+Ambiente realista, viral, seguro y creíble.
+""".strip()
+
+def generate_image(prompt, idx, final_title):
     path = os.path.join(OUTPUT_DIR, f"img_{idx}.png")
-    result = client.images.generate(
-        model=IMAGE_MODEL,
-        prompt=prompt,
-        size="1024x1536",
-        quality=IMAGE_QUALITY
-    )
+    try:
+        result = client.images.generate(
+            model=IMAGE_MODEL,
+            prompt=prompt,
+            size="1024x1536",
+            quality=IMAGE_QUALITY
+        )
+    except BadRequestError as e:
+        print("Prompt rechazado, usando fallback seguro...", flush=True)
+        result = client.images.generate(
+            model=IMAGE_MODEL,
+            prompt=safe_fallback_prompt(final_title, idx),
+            size="1024x1536",
+            quality=IMAGE_QUALITY
+        )
+
     with open(path, "wb") as f:
         f.write(base64.b64decode(result.data[0].b64_json))
     return path
@@ -365,12 +406,11 @@ def make_video(image_paths, title):
     title_png = os.path.join(OUTPUT_DIR, "title.png")
     make_overlay(title[:110], title_png, height=260, font_size=48, bold=True)
 
-    for i, path in enumerate(image_paths):
+    for path in image_paths:
         base = ImageClip(path).set_duration(2.7).resize(height=1920).set_position("center")
         zoom = base.resize(lambda t: 1 + 0.04 * (t / 2.7))
 
         title_clip = ImageClip(title_png).set_duration(2.7).set_position(("center", 50))
-
         comp = CompositeVideoClip([zoom, title_clip], size=(1080, 1920))
         clips.append(comp)
 
@@ -414,7 +454,7 @@ def main():
     image_paths = []
     for idx, prompt in enumerate(prompts, start=1):
         print(f"Generando imagen {idx}...", flush=True)
-        image_paths.append(generate_image(prompt, idx))
+        image_paths.append(generate_image(prompt, idx, final_title))
 
     video_path = make_video(image_paths, final_title)
     publish_video_fb(video_path, caption)
