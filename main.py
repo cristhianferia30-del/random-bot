@@ -1,10 +1,9 @@
+
 import os
-import sys
 import random
 import base64
 import requests
 from openai import OpenAI
-from pytrends.request import TrendReq
 
 print("MAIN INICIANDO DESDE GITHUB", flush=True)
 
@@ -29,11 +28,15 @@ if not FACEBOOK_PAGE_ID:
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def obtener_trends():
-    print("Obteniendo trends...", flush=True)
-    pytrends = TrendReq(hl="es-MX", tz=360)
-    df = pytrends.trending_searches(pn="mexico")
-    trends = df[0].dropna().astype(str).tolist()[:5]
-    print("Trends:", trends, flush=True)
+    print("Usando temas de prueba...", flush=True)
+    trends = [
+        "ovni visto en zona montañosa",
+        "luces extrañas en el cielo",
+        "figura misteriosa en carretera",
+        "nube rara sobre una colonia",
+        "objeto extraño captado por celular"
+    ]
+    print("Temas:", trends, flush=True)
     return trends
 
 def crear_titulo(trend):
@@ -81,9 +84,6 @@ def publicar_imagen_fb(image_path, mensaje):
 
 def main():
     trends = obtener_trends()
-    if not trends:
-        raise Exception("No se encontraron trends")
-
     trend = random.choice(trends)
     titulo = crear_titulo(trend)
     mensaje = descripcion_fb(titulo)
