@@ -1,3 +1,5 @@
+print("MAIN CARGADO BIEN DESDE GITHUB")
+
 import os
 import time
 import random
