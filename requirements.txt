@@ -1,7 +1,7 @@
 openai
 requests
 feedparser
-moviepy
+moviepy==1.0.3
 pillow
-imageio
-imageio-ffmpeg
+imageio==2.31.1
+imageio-ffmpeg==0.4.9
