@@ -1,29 +1,39 @@
-print("MAIN INICIANDO DESDE GITHUB")
-
 import os
+import sys
 import random
 import base64
 import requests
 from openai import OpenAI
 from pytrends.request import TrendReq
 
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-FACEBOOK_PAGE_TOKEN = os.environ["FACEBOOK_PAGE_TOKEN"]
-FACEBOOK_PAGE_ID = os.environ["FACEBOOK_PAGE_ID"]
+print("MAIN INICIANDO DESDE GITHUB", flush=True)
 
-print("Secrets detectados:")
-print("OPENAI_API_KEY OK")
-print("FACEBOOK_PAGE_TOKEN OK")
-print("FACEBOOK_PAGE_ID:", FACEBOOK_PAGE_ID)
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+FACEBOOK_PAGE_TOKEN = os.environ.get("FACEBOOK_PAGE_TOKEN", "")
+FACEBOOK_PAGE_ID = os.environ.get("FACEBOOK_PAGE_ID", "")
+
+print("OPENAI_API_KEY existe:", bool(OPENAI_API_KEY), flush=True)
+print("FACEBOOK_PAGE_TOKEN existe:", bool(FACEBOOK_PAGE_TOKEN), flush=True)
+print("FACEBOOK_PAGE_ID existe:", bool(FACEBOOK_PAGE_ID), flush=True)
+print("FACEBOOK_PAGE_ID valor:", FACEBOOK_PAGE_ID, flush=True)
+
+if not OPENAI_API_KEY:
+    raise Exception("Falta OPENAI_API_KEY")
+
+if not FACEBOOK_PAGE_TOKEN:
+    raise Exception("Falta FACEBOOK_PAGE_TOKEN")
+
+if not FACEBOOK_PAGE_ID:
+    raise Exception("Falta FACEBOOK_PAGE_ID")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def obtener_trends():
-    print("Obteniendo trends...")
+    print("Obteniendo trends...", flush=True)
     pytrends = TrendReq(hl="es-MX", tz=360)
     df = pytrends.trending_searches(pn="mexico")
     trends = df[0].dropna().astype(str).tolist()[:5]
-    print("Trends encontradas:", trends)
+    print("Trends:", trends, flush=True)
     return trends
 
 def crear_titulo(trend):
@@ -34,56 +44,43 @@ def crear_titulo(trend):
         "figura extraña aparece en la madrugada en una colonia de mexico"
     ]
     titulo = f"{random.choice(bases)} relacionado con {trend}"
-    print("Titulo generado:", titulo)
+    print("Titulo:", titulo, flush=True)
     return titulo
 
 def descripcion_fb(titulo):
-    opciones = [
-        f"Esto comenzó a circular hace unas horas: {titulo}. Testigos dicen que todo ocurrió muy rápido. ¿Casualidad o algo más?",
-        f"Última hora: {titulo}. Algunos usuarios aseguran que no tiene explicación clara. ¿Tú qué opinas?",
-        f"Imágenes que ya están dando de qué hablar: {titulo}. ¿Tú cómo lo ves?"
-    ]
-    mensaje = random.choice(opciones)
-    print("Descripcion generada:", mensaje)
+    mensaje = f"Esto comenzó a circular hace unas horas: {titulo}. ¿Casualidad o algo más?"
+    print("Mensaje:", mensaje, flush=True)
     return mensaje
 
 def generar_imagen(prompt):
-    print("Generando imagen con OpenAI...")
+    print("Generando imagen con OpenAI...", flush=True)
     result = client.images.generate(
         model="gpt-image-1",
         prompt=prompt,
         size="1024x1536"
     )
-
     image_base64 = result.data[0].b64_json
     output_path = "imagen.png"
-
     with open(output_path, "wb") as f:
         f.write(base64.b64decode(image_base64))
-
-    print("Imagen guardada en:", output_path)
+    print("Imagen guardada:", output_path, flush=True)
     return output_path
 
 def publicar_imagen_fb(image_path, mensaje):
-    print("Publicando en Facebook...")
+    print("Publicando en Facebook...", flush=True)
     url = f"https://graph.facebook.com/v20.0/{FACEBOOK_PAGE_ID}/photos"
-
     payload = {
         "access_token": FACEBOOK_PAGE_TOKEN,
         "caption": mensaje
     }
-
     with open(image_path, "rb") as f:
         response = requests.post(url, data=payload, files={"source": f})
-
-    print("Status code Facebook:", response.status_code)
-    print("Facebook response:", response.text)
-
+    print("Status Facebook:", response.status_code, flush=True)
+    print("Respuesta Facebook:", response.text, flush=True)
     response.raise_for_status()
 
 def main():
     trends = obtener_trends()
-
     if not trends:
         raise Exception("No se encontraron trends")
 
@@ -100,7 +97,11 @@ No pongas texto dentro de la imagen.
 
     image_path = generar_imagen(prompt)
     publicar_imagen_fb(image_path, mensaje)
-    print("PUBLICACION TERMINADA")
+    print("PUBLICACION TERMINADA", flush=True)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print("ERROR FINAL:", str(e), flush=True)
+        raise
