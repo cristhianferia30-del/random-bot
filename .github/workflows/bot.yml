@@ -1,12 +1,6 @@
-name: bot
-
 on:
   schedule:
-    - cron: '0 18 * * *'
-    - cron: '0 21 * * *'
-    - cron: '0 0 * * *'
-    - cron: '0 3 * * *'
-    - cron: '30 4 * * *'
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
