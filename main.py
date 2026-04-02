@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from moviepy.editor import ImageClip, CompositeVideoClip
 
 
-print("BOT V5 INICIANDO", flush=True)
+print("BOT V6 INICIANDO", flush=True)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FACEBOOK_PAGE_TOKEN = os.environ.get("FACEBOOK_PAGE_TOKEN", "")
@@ -37,6 +37,8 @@ RSS_FEEDS = [
     "https://news.google.com/rss/search?q=deportes&hl=es-419&gl=MX&ceid=MX:es-419",
     "https://news.google.com/rss/search?q=mundial&hl=es-419&gl=MX&ceid=MX:es-419",
     "https://news.google.com/rss/search?q=anime&hl=es-419&gl=MX&ceid=MX:es-419",
+    "https://news.google.com/rss/search?q=wendy+guevara&hl=es-419&gl=MX&ceid=MX:es-419",
+    "https://news.google.com/rss/search?q=poncho+de+nigris&hl=es-419&gl=MX&ceid=MX:es-419",
 ]
 
 BAD_IMAGE_WORDS = [
@@ -88,6 +90,40 @@ def fetch_news():
     return items
 
 
+def score_topic(title):
+    t = clean_title(title).lower()
+    score = 0
+
+    strong_words = [
+        "última hora", "viral", "escándalo", "impacta", "explota", "muerte",
+        "polémica", "filtran", "revela", "caos", "sorpresa", "rompe", "acusa",
+        "confirma", "wendy", "poncho", "aldo", "trump", "cristiano",
+        "mundial", "anime", "jujutsu", "famoso", "cantante", "actor"
+    ]
+
+    visual_words = [
+        "estadio", "casa blanca", "marina", "barco", "incendio", "humo",
+        "explosión", "concierto", "televisión", "reality", "laboratorio",
+        "accidente", "sismo", "show", "foro"
+    ]
+
+    for w in strong_words:
+        if w in t:
+            score += 2
+
+    for w in visual_words:
+        if w in t:
+            score += 3
+
+    if any(x in t for x in ["wendy", "poncho", "aldo", "de nigris"]):
+        score += 4
+
+    if any(x in t for x in ["cristiano", "mundial", "futbol", "estadio"]):
+        score += 4
+
+    return score
+
+
 def pick_topic(items, state):
     used = set(state.get("used", []))
 
@@ -100,7 +136,92 @@ def pick_topic(items, state):
     if not fresh:
         fresh = items[:]
 
-    return random.choice(fresh)
+    fresh.sort(key=score_topic, reverse=True)
+    top = fresh[:5] if len(fresh) >= 5 else fresh
+    return random.choice(top)
+
+
+def build_caption(title):
+    t = clean_title(title)
+    return (
+        f"Última hora: {t}.\n"
+        "La noticia comienza a circular en redes.\n"
+        "Este tema ya está generando conversación.\n"
+        "No es coincidencia. Es Random."
+    )
+
+
+def fallback_queries(title):
+    t = clean_title(title)
+    t_low = t.lower()
+
+    if any(x in t_low for x in [
+        "wendy", "poncho", "aldo de nigris", "de nigris", "famoso", "cantante",
+        "actor", "actriz", "reality", "casa de los famosos", "lcdlf", "farandula"
+    ]):
+        return [
+            "red carpet event celebrities photographers",
+            "tv studio entertainment show audience",
+            "concert stage lights crowd",
+            f"{t} famoso television"
+        ]
+
+    if any(x in t_low for x in [
+        "mundial", "futbol", "cristiano", "ronaldo", "america", "liga", "gol", "estadio"
+    ]):
+        return [
+            "football stadium crowd night",
+            "Estadio Azteca crowd lights",
+            "soccer fans stadium mexico",
+            f"{t} futbol estadio"
+        ]
+
+    if any(x in t_low for x in [
+        "trump", "presidente", "gobierno", "politica", "congreso", "senado", "casa blanca"
+    ]):
+        return [
+            "White House press conference",
+            "government palace press room",
+            "political briefing reporters",
+            f"{t} politica conferencia"
+        ]
+
+    if any(x in t_low for x in [
+        "marina", "barco", "puerto", "mar", "huachicol", "petroleo"
+    ]):
+        return [
+            "navy ship sea operations",
+            "oil ship port at sunset",
+            "mexico navy port investigation",
+            f"{t} barco marina"
+        ]
+
+    if any(x in t_low for x in [
+        "explosion", "incendio", "choque", "sismo", "desastre", "humo", "accidente"
+    ]):
+        return [
+            "city smoke emergency street",
+            "firefighters street night smoke",
+            "disaster street crowd emergency",
+            f"{t} desastre calle"
+        ]
+
+    if any(x in t_low for x in [
+        "anime", "jujutsu", "dragon ball", "naruto", "one piece"
+    ]):
+        return [
+            "tokyo city night crowd lights",
+            "anime convention crowd lights",
+            "neon city dramatic sky",
+            f"{t} anime evento"
+        ]
+
+    return [
+        f"{t} noticia",
+        f"{t} escenario real",
+        "breaking news city street",
+        "press conference crowd"
+    ]
 
 
 def ask_ai_for_plan(title):
@@ -180,60 +301,6 @@ Reglas:
         }
 
 
-def fallback_queries(title):
-    t = clean_title(title)
-
-    queries = [
-        t,
-        f"{t} noticia",
-        f"{t} escenario real",
-        "ciudad noticias breaking news",
-    ]
-
-    t_low = t.lower()
-
-    if "trump" in t_low or "casa blanca" in t_low:
-        queries = [
-            "Donald Trump White House press conference",
-            "White House exterior news",
-            "Washington DC press briefing",
-            t,
-        ]
-    elif "cristiano" in t_low or "mundial" in t_low or "futbol" in t_low:
-        queries = [
-            "Cristiano Ronaldo stadium football match",
-            "Estadio Azteca football crowd",
-            "football stadium night crowd",
-            t,
-        ]
-    elif "marina" in t_low or "barco" in t_low or "huachicol" in t_low or "puerto" in t_low:
-        queries = [
-            "navy ship sea investigation",
-            "oil ship port mexico",
-            "mexico navy port operations",
-            t,
-        ]
-    elif "anime" in t_low or "jujutsu" in t_low:
-        queries = [
-            "Tokyo city night crowd",
-            "anime convention crowd",
-            "neon city dramatic sky",
-            t,
-        ]
-
-    return queries
-
-
-def build_caption(title):
-    t = clean_title(title)
-    return (
-        f"Última hora: {t}.\n"
-        "La noticia comienza a circular en redes.\n"
-        "Este tema ya está generando conversación.\n"
-        "No es coincidencia. Es Random."
-    )
-
-
 def search_wikimedia_image(query):
     url = "https://commons.wikimedia.org/w/api.php"
     params = {
@@ -288,8 +355,47 @@ def search_wikimedia_image(query):
     return None
 
 
-def download_best_background(queries):
-    for q in queries:
+def create_fallback_background(title=""):
+    t_low = clean_title(title).lower()
+    base = (18, 24, 36)
+
+    if any(x in t_low for x in ["wendy", "poncho", "aldo de nigris", "famoso", "casa de los famosos", "farandula"]):
+        base = (60, 18, 28)
+    elif any(x in t_low for x in ["mundial", "futbol", "cristiano", "ronaldo", "america", "estadio"]):
+        base = (16, 42, 22)
+    elif any(x in t_low for x in ["trump", "presidente", "gobierno", "politica", "casa blanca"]):
+        base = (20, 28, 52)
+    elif any(x in t_low for x in ["marina", "barco", "mar", "puerto", "huachicol"]):
+        base = (12, 42, 58)
+    elif any(x in t_low for x in ["explosion", "incendio", "desastre", "humo", "accidente"]):
+        base = (52, 26, 14)
+    elif any(x in t_low for x in ["anime", "jujutsu", "dragon ball", "naruto"]):
+        base = (30, 18, 60)
+
+    img = Image.new("RGB", (1080, 1920), base)
+    draw = ImageDraw.Draw(img)
+
+    for y in range(1920):
+        c1 = min(255, int(base[0] + (y / 1920) * 35))
+        c2 = min(255, int(base[1] + (y / 1920) * 35))
+        c3 = min(255, int(base[2] + (y / 1920) * 35))
+        draw.line((0, y, 1080, y), fill=(c1, c2, c3))
+
+    path = os.path.join(OUTPUT_DIR, "bg.jpg")
+    img.save(path, quality=95)
+    return path
+
+
+def download_best_background(queries, title=""):
+    all_queries = list(queries) + fallback_queries(title)
+
+    seen = set()
+    for q in all_queries:
+        qn = q.strip().lower()
+        if qn in seen:
+            continue
+        seen.add(qn)
+
         img_url = search_wikimedia_image(q)
         if img_url:
             try:
@@ -302,20 +408,7 @@ def download_best_background(queries):
             except Exception as e:
                 print("DOWNLOAD ERROR:", e, flush=True)
 
-    return create_fallback_background()
-
-
-def create_fallback_background():
-    img = Image.new("RGB", (1080, 1920), (18, 24, 36))
-    draw = ImageDraw.Draw(img)
-
-    for y in range(1920):
-        c = int(18 + (y / 1920) * 40)
-        draw.line((0, y, 1080, y), fill=(c, c + 4, c + 10))
-
-    path = os.path.join(OUTPUT_DIR, "bg.jpg")
-    img.save(path, quality=95)
-    return path
+    return create_fallback_background(title)
 
 
 def cover_crop(img, target_w=1080, target_h=1920):
@@ -340,9 +433,9 @@ def cover_crop(img, target_w=1080, target_h=1920):
 def add_overlays(base_img, headline, subtitle):
     img = cover_crop(base_img)
 
-    img = ImageEnhance.Contrast(img).enhance(1.08)
-    img = ImageEnhance.Color(img).enhance(0.95)
-    img = ImageEnhance.Sharpness(img).enhance(1.05)
+    img = ImageEnhance.Contrast(img).enhance(1.10)
+    img = ImageEnhance.Color(img).enhance(0.98)
+    img = ImageEnhance.Sharpness(img).enhance(1.08)
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -380,7 +473,6 @@ def add_overlays(base_img, headline, subtitle):
 
 def make_video(image_path):
     clip = ImageClip(image_path).set_duration(VIDEO_SECONDS)
-
     zoomed = clip.resize(lambda t: 1.0 + (0.06 * (t / VIDEO_SECONDS)))
     final = CompositeVideoClip([zoomed.set_position("center")], size=(1080, 1920))
     final = final.set_duration(VIDEO_SECONDS)
@@ -430,15 +522,10 @@ def main():
     print("HEADLINE:", plan["headline"], flush=True)
     print("QUERIES:", plan["queries"], flush=True)
 
-    bg_path = download_best_background(plan["queries"])
+    bg_path = download_best_background(plan["queries"], title)
     bg_img = Image.open(bg_path).convert("RGB")
 
-    frame_path = add_overlays(
-        bg_img,
-        plan["headline"],
-        plan["subtitle"],
-    )
-
+    frame_path = add_overlays(bg_img, plan["headline"], plan["subtitle"])
     video_path = make_video(frame_path)
     post_video(video_path, plan["caption"])
 
