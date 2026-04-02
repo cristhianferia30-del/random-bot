@@ -1,10 +1,7 @@
 on:
   schedule:
-    - cron: "0 18 * * *"
-    - cron: "0 21 * * *"
-    - cron: "0 0 * * *"
-    - cron: "0 3 * * *"
-    - cron: "0 5 * * *"
+  - cron: '0 21 * * 1,4,5,6,0'
+  - cron: '0 2 * * 2,5,6,0,1'
   workflow_dispatch:
 
 permissions:
@@ -40,7 +37,7 @@ jobs:
           FACEBOOK_PAGE_ID: ${{ secrets.FACEBOOK_PAGE_ID }}
           IMAGE_MODEL: gpt-image-1
           IMAGE_QUALITY: low
-          IMAGES_PER_VIDEO: 3
+          IMAGES_PER_VIDEO: 1
         run: |
           python -u main.py
 
