@@ -13,8 +13,7 @@ from openai import OpenAI, BadRequestError
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from moviepy.editor import ImageClip, CompositeVideoClip
 
-
-print("BOT V7 INICIANDO", flush=True)
+print("BOT V8 INICIANDO", flush=True)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FACEBOOK_PAGE_TOKEN = os.environ.get("FACEBOOK_PAGE_TOKEN", "")
@@ -40,9 +39,10 @@ RSS_FEEDS = [
     "https://news.google.com/rss/search?q=mundial&hl=es-419&gl=MX&ceid=MX:es-419",
     "https://news.google.com/rss/search?q=anime&hl=es-419&gl=MX&ceid=MX:es-419",
     "https://news.google.com/rss/search?q=wendy+guevara&hl=es-419&gl=MX&ceid=MX:es-419",
-    "https://news.google.com/rss/search?q=poncho+de+nigris&hl=es-419&gl=MX&ceid=MX:es-419",
+    "https://news.google.com/rss/search?q=poncho+de+nigris&hl=es-419&gl=MX:es-419",
+    "https://news.google.com/rss/search?q=terremoto&hl=es-419&gl=MX&ceid=MX:es-419",
+    "https://news.google.com/rss/search?q=sismo&hl=es-419&gl=MX&ceid=MX:es-419",
 ]
-
 
 def load_state():
     if not os.path.exists(STATE_FILE):
@@ -50,24 +50,19 @@ def load_state():
     with open(STATE_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-
 def save_state(state):
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
-
 def norm(t):
     return re.sub(r"\s+", " ", t.lower().strip())
-
 
 def text_hash(t):
     return hashlib.md5(norm(t).encode()).hexdigest()
 
-
 def clean_title(t):
     t = re.sub(r"[-–|].*$", "", t)
     return t.strip()
-
 
 def fetch_news():
     items = []
@@ -86,40 +81,26 @@ def fetch_news():
 
     return items
 
-
 def score_topic(title):
     t = clean_title(title).lower()
     score = 0
 
-    strong_words = [
-        "última hora", "viral", "escándalo", "impacta", "explota", "muerte",
-        "polémica", "filtran", "revela", "caos", "sorpresa", "rompe", "acusa",
-        "confirma", "wendy", "poncho", "aldo", "trump", "cristiano",
-        "mundial", "anime", "jujutsu", "famoso", "cantante", "actor", "accidente"
-    ]
+    if any(x in t for x in ["muere", "accidente", "explota", "caos", "impacta", "sismo", "terremoto", "temblor", "incendio", "desastre"]):
+        score += 5
 
-    visual_words = [
-        "estadio", "casa blanca", "marina", "barco", "incendio", "humo",
-        "explosión", "concierto", "televisión", "reality", "laboratorio",
-        "accidente", "sismo", "show", "foro", "ambulancia", "auto", "choque"
-    ]
-
-    for w in strong_words:
-        if w in t:
-            score += 2
-
-    for w in visual_words:
-        if w in t:
-            score += 3
-
-    if any(x in t for x in ["wendy", "poncho", "aldo", "de nigris"]):
+    if any(x in t for x in ["wendy", "poncho", "nigris", "actor", "cantante", "famoso", "marcela", "de nigris", "casa de los famosos"]):
         score += 4
 
-    if any(x in t for x in ["cristiano", "mundial", "futbol", "estadio"]):
+    if any(x in t for x in ["mundial", "futbol", "cristiano", "gol", "america", "estadio", "ronaldo"]):
         score += 4
+
+    if any(x in t for x in ["viral", "redes", "video", "filtran", "escandalo", "polémica", "revela", "rompe"]):
+        score += 3
+
+    if any(x in t for x in ["ovni", "extraño", "misterio", "raro", "inexplicable"]):
+        score += 3
 
     return score
-
 
 def pick_topic(items, state):
     used = set(state.get("used", []))
@@ -137,7 +118,6 @@ def pick_topic(items, state):
     top = fresh[:5] if len(fresh) >= 5 else fresh
     return random.choice(top)
 
-
 def build_caption(title):
     t = clean_title(title)
     return (
@@ -147,71 +127,53 @@ def build_caption(title):
         "No es coincidencia. Es Random."
     )
 
-
 def fallback_prompt(title):
     t = clean_title(title)
-    t_low = t.lower()
+    return f"""
+Fotografía REAL tomada con celular, estilo noticia de último momento.
 
-    if any(x in t_low for x in ["wendy", "poncho", "aldo de nigris", "de nigris", "marcela", "farándula", "famoso", "casa de los famosos"]):
-        return (
-            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
-            f"Dos celebridades mexicanas parecidas a figuras de televisión, no idénticas, "
-            f"en evento nocturno con cámaras, flashes, foro de tv o alfombra roja. "
-            f"La escena debe verse humana, realista, dramática, con iluminación natural, sin texto. "
-            f"Tema: {t}"
-        )
+Escena basada en: {t}
 
-    if any(x in t_low for x in ["accidente", "choque", "auto", "carro"]):
-        return (
-            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
-            f"Accidente automovilístico nocturno, auto dañado, luces de ambulancia y policía, "
-            f"personas parecidas a celebridades mexicanas, no idénticas, expresión dramática, "
-            f"todo muy realista, iluminación de calle, sin texto. Tema: {t}"
-        )
+IMPORTANTE:
+- personas reales
+- rostro humano natural
+- textura real de piel
+- iluminación imperfecta de celular
+- ligero ruido de cámara
+- ligero desenfoque natural
+- encuadre imperfecto como si alguien tomara la foto rápido
+- fondo totalmente relacionado con la noticia
+- sensación de reportaje o testigo presencial
+- hiperrealista
+- muy creíble
+- nada artístico
 
-    if any(x in t_low for x in ["mundial", "futbol", "cristiano", "ronaldo", "estadio", "america"]):
-        return (
-            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
-            f"Estadio lleno, ambiente de partido importante, luces, emoción, persona parecida a futbolista famoso, no idéntica, "
-            f"fondo tipo Estadio Azteca, realista, humana, sin texto. Tema: {t}"
-        )
+PROHIBIDO:
+- caricatura
+- ilustración
+- pintura
+- CGI
+- render
+- 3D
+- anime
+- muñeco
+- texto dentro de la imagen
 
-    if any(x in t_low for x in ["trump", "presidente", "gobierno", "politica", "casa blanca"]):
-        return (
-            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
-            f"Conferencia política, edificio oficial, reporteros, tensión, "
-            f"persona parecida a líder político famoso, no idéntica, "
-            f"luces reales, ambiente serio, sin texto. Tema: {t}"
-        )
+Si aparecen famosos:
+- solo parecidos
+- nunca idénticos
+- estilo personas reales inspiradas en figuras públicas
 
-    if any(x in t_low for x in ["marina", "barco", "puerto", "huachicol", "mar"]):
-        return (
-            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
-            f"Puerto marítimo, barco grande, personal de marina, ambiente de investigación, "
-            f"cielo nublado, realista, humana, sin texto. Tema: {t}"
-        )
-
-    if any(x in t_low for x in ["anime", "jujutsu", "dragon ball", "naruto"]):
-        return (
-            f"Escena hiperrealista, foto real, estilo noticia viral grabada con celular. "
-            f"Ambiente urbano nocturno con luces, evento masivo, persona con estética inspirada en anime, "
-            f"pero foto real humana, no caricatura, realista, dramática, sin texto. Tema: {t}"
-        )
-
-    return (
-        f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
-        f"Ambiente real relacionado con la noticia, iluminación natural, humana, creíble, "
-        f"impactante, sin texto. Tema: {t}"
-    )
-
+La imagen debe parecer una foto real tomada por un celular en la vida real.
+"""
 
 def ask_ai_for_plan(title):
     system = (
-        "Eres un editor viral para Facebook. "
-        "Devuelve SOLO JSON válido. "
-        "Tu trabajo es transformar noticias en escenas visuales hiperrealistas y creíbles. "
-        "No pongas texto dentro de la imagen. "
-        "Si mencionas famosos, deben ser parecidos, nunca idénticos."
+        "Eres un editor viral de Facebook. "
+        "Devuelve solo JSON válido. "
+        "Tu objetivo es hacer una salida hiperrealista, humana, visual y creíble. "
+        "Nada caricaturizado. "
+        "Nada artístico."
     )
 
     user = f"""
@@ -221,15 +183,16 @@ Devuelve JSON con esta forma exacta:
 {{
   "headline": "titulo corto e impactante en español",
   "subtitle": "subtitulo corto en español",
-  "image_prompt": "prompt detallado para generar una imagen hiperrealista",
+  "image_prompt": "prompt hiperrealista y muy real tipo celular",
   "caption": "texto corto para Facebook en español"
 }}
 
 Reglas:
-- headline máximo 11 palabras.
+- headline máximo 10 palabras.
 - subtitle máximo 14 palabras.
-- image_prompt debe ser hiperrealista, estilo celular, humano, creíble, sin texto dentro de la imagen.
-- Si hay celebridad, usar 'parecido a' y nunca exacto.
+- image_prompt debe verse como foto real tomada con celular.
+- cero caricatura, cero ilustración, cero render.
+- si hay famosos, solo parecidos, nunca idénticos.
 - caption máximo 4 líneas.
 """
 
@@ -280,7 +243,6 @@ Reglas:
             "caption": build_caption(title),
         }
 
-
 def generate_ai_background(prompt):
     path = os.path.join(OUTPUT_DIR, "bg.png")
 
@@ -295,7 +257,16 @@ def generate_ai_background(prompt):
         print("IMAGE ERROR 1:", e, flush=True)
         r = client.images.generate(
             model=IMAGE_MODEL,
-            prompt="Escena hiperrealista, foto real, noticia grabada con celular, ambiente urbano, iluminación real, sin texto.",
+            prompt="""
+Fotografía real tomada con celular.
+Escena urbana real.
+Iluminación natural.
+Piel real.
+Sin texto.
+Sin caricatura.
+Sin ilustración.
+Sin render.
+""",
             size="1024x1536",
             quality=IMAGE_QUALITY,
         )
@@ -305,7 +276,6 @@ def generate_ai_background(prompt):
         f.write(img_bytes)
 
     return path
-
 
 def cover_crop(img, target_w=1080, target_h=1920):
     w, h = img.size
@@ -325,19 +295,18 @@ def cover_crop(img, target_w=1080, target_h=1920):
     top = (new_h - target_h) // 2
     return img.crop((left, top, left + target_w, top + target_h))
 
-
 def add_overlays(base_img, headline, subtitle):
     img = cover_crop(base_img)
 
-    img = ImageEnhance.Contrast(img).enhance(1.10)
-    img = ImageEnhance.Color(img).enhance(0.98)
-    img = ImageEnhance.Sharpness(img).enhance(1.08)
+    img = ImageEnhance.Contrast(img).enhance(1.08)
+    img = ImageEnhance.Color(img).enhance(0.96)
+    img = ImageEnhance.Sharpness(img).enhance(1.06)
 
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
     for y in range(1100, 1920):
-        alpha = int(220 * ((y - 1100) / 820))
+        alpha = int(215 * ((y - 1100) / 820))
         draw.line((0, y, 1080, y), fill=(0, 0, 0, alpha))
 
     for y in range(0, 260):
@@ -345,9 +314,9 @@ def add_overlays(base_img, headline, subtitle):
         draw.line((0, y, 1080, y), fill=(0, 0, 0, alpha))
 
     try:
-        font_big = ImageFont.truetype("DejaVuSans-Bold.ttf", 78)
-        font_mid = ImageFont.truetype("DejaVuSans-Bold.ttf", 56)
-        font_small = ImageFont.truetype("DejaVuSans.ttf", 38)
+        font_big = ImageFont.truetype("DejaVuSans-Bold.ttf", 76)
+        font_mid = ImageFont.truetype("DejaVuSans-Bold.ttf", 54)
+        font_small = ImageFont.truetype("DejaVuSans.ttf", 36)
     except Exception:
         font_big = ImageFont.load_default()
         font_mid = ImageFont.load_default()
@@ -356,9 +325,9 @@ def add_overlays(base_img, headline, subtitle):
     draw.text((58, 72), "ÚLTIMA HORA", font=font_mid, fill=(255, 255, 255, 255))
 
     wrapped_headline = textwrap.fill(headline.upper(), width=18)
-    wrapped_subtitle = textwrap.fill(subtitle, width=26)
+    wrapped_subtitle = textwrap.fill(subtitle, width=28)
 
-    draw.text((58, 1230), wrapped_headline, font=font_big, fill=(255, 255, 255, 255))
+    draw.text((58, 1220), wrapped_headline, font=font_big, fill=(255, 255, 255, 255))
     draw.text((58, 1630), wrapped_subtitle, font=font_small, fill=(235, 235, 235, 255))
 
     final = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
@@ -366,10 +335,9 @@ def add_overlays(base_img, headline, subtitle):
     final.save(out, quality=95)
     return out
 
-
 def make_video(image_path):
     clip = ImageClip(image_path).set_duration(VIDEO_SECONDS)
-    zoomed = clip.resize(lambda t: 1.0 + (0.06 * (t / VIDEO_SECONDS)))
+    zoomed = clip.resize(lambda t: 1.0 + (0.08 * (t / VIDEO_SECONDS)))
     final = CompositeVideoClip([zoomed.set_position("center")], size=(1080, 1920))
     final = final.set_duration(VIDEO_SECONDS)
 
@@ -383,7 +351,6 @@ def make_video(image_path):
         preset="medium",
     )
     return out
-
 
 def post_video(video, caption):
     url = f"https://graph.facebook.com/v20.0/{FACEBOOK_PAGE_ID}/videos"
@@ -401,7 +368,6 @@ def post_video(video, caption):
 
     print("FACEBOOK RESPONSE:", r.text, flush=True)
     r.raise_for_status()
-
 
 def main():
     state = load_state()
@@ -429,7 +395,6 @@ def main():
     used.append(text_hash(title))
     state["used"] = used[-400:]
     save_state(state)
-
 
 if __name__ == "__main__":
     main()
