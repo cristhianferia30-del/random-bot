@@ -4,23 +4,25 @@ import json
 import textwrap
 import hashlib
 import random
-from io import BytesIO
+import base64
 
 import requests
 import feedparser
 
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 from moviepy.editor import ImageClip, CompositeVideoClip
 
 
-print("BOT V6 INICIANDO", flush=True)
+print("BOT V7 INICIANDO", flush=True)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 FACEBOOK_PAGE_TOKEN = os.environ.get("FACEBOOK_PAGE_TOKEN", "")
 FACEBOOK_PAGE_ID = os.environ.get("FACEBOOK_PAGE_ID", "")
 
 TEXT_MODEL = os.environ.get("TEXT_MODEL", "gpt-4o-mini")
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "gpt-image-1")
+IMAGE_QUALITY = os.environ.get("IMAGE_QUALITY", "low")
 VIDEO_SECONDS = float(os.environ.get("VIDEO_SECONDS", "8"))
 
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -39,11 +41,6 @@ RSS_FEEDS = [
     "https://news.google.com/rss/search?q=anime&hl=es-419&gl=MX&ceid=MX:es-419",
     "https://news.google.com/rss/search?q=wendy+guevara&hl=es-419&gl=MX&ceid=MX:es-419",
     "https://news.google.com/rss/search?q=poncho+de+nigris&hl=es-419&gl=MX&ceid=MX:es-419",
-]
-
-BAD_IMAGE_WORDS = [
-    "logo", "icon", "map", "flag", "escudo", "seal", "diagram",
-    "drawing", "illustration", "poster", "cartoon"
 ]
 
 
@@ -98,13 +95,13 @@ def score_topic(title):
         "última hora", "viral", "escándalo", "impacta", "explota", "muerte",
         "polémica", "filtran", "revela", "caos", "sorpresa", "rompe", "acusa",
         "confirma", "wendy", "poncho", "aldo", "trump", "cristiano",
-        "mundial", "anime", "jujutsu", "famoso", "cantante", "actor"
+        "mundial", "anime", "jujutsu", "famoso", "cantante", "actor", "accidente"
     ]
 
     visual_words = [
         "estadio", "casa blanca", "marina", "barco", "incendio", "humo",
         "explosión", "concierto", "televisión", "reality", "laboratorio",
-        "accidente", "sismo", "show", "foro"
+        "accidente", "sismo", "show", "foro", "ambulancia", "auto", "choque"
     ]
 
     for w in strong_words:
@@ -126,8 +123,8 @@ def score_topic(title):
 
 def pick_topic(items, state):
     used = set(state.get("used", []))
-
     fresh = []
+
     for t in items:
         h = text_hash(t)
         if h not in used:
@@ -151,86 +148,70 @@ def build_caption(title):
     )
 
 
-def fallback_queries(title):
+def fallback_prompt(title):
     t = clean_title(title)
     t_low = t.lower()
 
-    if any(x in t_low for x in [
-        "wendy", "poncho", "aldo de nigris", "de nigris", "famoso", "cantante",
-        "actor", "actriz", "reality", "casa de los famosos", "lcdlf", "farandula"
-    ]):
-        return [
-            "red carpet event celebrities photographers",
-            "tv studio entertainment show audience",
-            "concert stage lights crowd",
-            f"{t} famoso television"
-        ]
+    if any(x in t_low for x in ["wendy", "poncho", "aldo de nigris", "de nigris", "marcela", "farándula", "famoso", "casa de los famosos"]):
+        return (
+            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
+            f"Dos celebridades mexicanas parecidas a figuras de televisión, no idénticas, "
+            f"en evento nocturno con cámaras, flashes, foro de tv o alfombra roja. "
+            f"La escena debe verse humana, realista, dramática, con iluminación natural, sin texto. "
+            f"Tema: {t}"
+        )
 
-    if any(x in t_low for x in [
-        "mundial", "futbol", "cristiano", "ronaldo", "america", "liga", "gol", "estadio"
-    ]):
-        return [
-            "football stadium crowd night",
-            "Estadio Azteca crowd lights",
-            "soccer fans stadium mexico",
-            f"{t} futbol estadio"
-        ]
+    if any(x in t_low for x in ["accidente", "choque", "auto", "carro"]):
+        return (
+            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
+            f"Accidente automovilístico nocturno, auto dañado, luces de ambulancia y policía, "
+            f"personas parecidas a celebridades mexicanas, no idénticas, expresión dramática, "
+            f"todo muy realista, iluminación de calle, sin texto. Tema: {t}"
+        )
 
-    if any(x in t_low for x in [
-        "trump", "presidente", "gobierno", "politica", "congreso", "senado", "casa blanca"
-    ]):
-        return [
-            "White House press conference",
-            "government palace press room",
-            "political briefing reporters",
-            f"{t} politica conferencia"
-        ]
+    if any(x in t_low for x in ["mundial", "futbol", "cristiano", "ronaldo", "estadio", "america"]):
+        return (
+            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
+            f"Estadio lleno, ambiente de partido importante, luces, emoción, persona parecida a futbolista famoso, no idéntica, "
+            f"fondo tipo Estadio Azteca, realista, humana, sin texto. Tema: {t}"
+        )
 
-    if any(x in t_low for x in [
-        "marina", "barco", "puerto", "mar", "huachicol", "petroleo"
-    ]):
-        return [
-            "navy ship sea operations",
-            "oil ship port at sunset",
-            "mexico navy port investigation",
-            f"{t} barco marina"
-        ]
+    if any(x in t_low for x in ["trump", "presidente", "gobierno", "politica", "casa blanca"]):
+        return (
+            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
+            f"Conferencia política, edificio oficial, reporteros, tensión, "
+            f"persona parecida a líder político famoso, no idéntica, "
+            f"luces reales, ambiente serio, sin texto. Tema: {t}"
+        )
 
-    if any(x in t_low for x in [
-        "explosion", "incendio", "choque", "sismo", "desastre", "humo", "accidente"
-    ]):
-        return [
-            "city smoke emergency street",
-            "firefighters street night smoke",
-            "disaster street crowd emergency",
-            f"{t} desastre calle"
-        ]
+    if any(x in t_low for x in ["marina", "barco", "puerto", "huachicol", "mar"]):
+        return (
+            f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
+            f"Puerto marítimo, barco grande, personal de marina, ambiente de investigación, "
+            f"cielo nublado, realista, humana, sin texto. Tema: {t}"
+        )
 
-    if any(x in t_low for x in [
-        "anime", "jujutsu", "dragon ball", "naruto", "one piece"
-    ]):
-        return [
-            "tokyo city night crowd lights",
-            "anime convention crowd lights",
-            "neon city dramatic sky",
-            f"{t} anime evento"
-        ]
+    if any(x in t_low for x in ["anime", "jujutsu", "dragon ball", "naruto"]):
+        return (
+            f"Escena hiperrealista, foto real, estilo noticia viral grabada con celular. "
+            f"Ambiente urbano nocturno con luces, evento masivo, persona con estética inspirada en anime, "
+            f"pero foto real humana, no caricatura, realista, dramática, sin texto. Tema: {t}"
+        )
 
-    return [
-        f"{t} noticia",
-        f"{t} escenario real",
-        "breaking news city street",
-        "press conference crowd"
-    ]
+    return (
+        f"Escena hiperrealista, foto real, estilo noticia grabada con celular. "
+        f"Ambiente real relacionado con la noticia, iluminación natural, humana, creíble, "
+        f"impactante, sin texto. Tema: {t}"
+    )
 
 
 def ask_ai_for_plan(title):
     system = (
-        "Eres un editor viral de noticias para Facebook. "
+        "Eres un editor viral para Facebook. "
         "Devuelve SOLO JSON válido. "
-        "Busca una salida hiperrealista, creíble y visual. "
-        "Nada de fantasía absurda. "
-        "El fondo debe coincidir con la noticia."
+        "Tu trabajo es transformar noticias en escenas visuales hiperrealistas y creíbles. "
+        "No pongas texto dentro de la imagen. "
+        "Si mencionas famosos, deben ser parecidos, nunca idénticos."
     )
 
     user = f"""
@@ -240,30 +221,29 @@ Devuelve JSON con esta forma exacta:
 {{
   "headline": "titulo corto e impactante en español",
   "subtitle": "subtitulo corto en español",
-  "queries": ["busqueda 1", "busqueda 2", "busqueda 3", "busqueda 4"],
+  "image_prompt": "prompt detallado para generar una imagen hiperrealista",
   "caption": "texto corto para Facebook en español"
 }}
 
 Reglas:
 - headline máximo 11 palabras.
 - subtitle máximo 14 palabras.
-- queries deben buscar escenarios reales y visuales ligados a la noticia.
-- Si hay famoso o político, combina persona + lugar + contexto real.
-- Prioriza escenas tipo celular/noticia real.
+- image_prompt debe ser hiperrealista, estilo celular, humano, creíble, sin texto dentro de la imagen.
+- Si hay celebridad, usar 'parecido a' y nunca exacto.
 - caption máximo 4 líneas.
 """
 
     try:
         r = client.chat.completions.create(
             model=TEXT_MODEL,
-            temperature=0.6,
+            temperature=0.7,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
         )
-        text = r.choices[0].message.content.strip()
 
+        text = r.choices[0].message.content.strip()
         match = re.search(r"\{.*\}", text, re.S)
         if match:
             text = match.group(0)
@@ -272,22 +252,22 @@ Reglas:
 
         headline = data.get("headline", "").strip()
         subtitle = data.get("subtitle", "").strip()
-        queries = data.get("queries", [])
+        image_prompt = data.get("image_prompt", "").strip()
         caption = data.get("caption", "").strip()
 
         if not headline:
             headline = f"Última hora: {clean_title(title)}"
         if not subtitle:
             subtitle = "La noticia ya comienza a mover redes."
-        if not queries:
-            queries = fallback_queries(title)
+        if not image_prompt:
+            image_prompt = fallback_prompt(title)
         if not caption:
             caption = build_caption(title)
 
         return {
             "headline": headline,
             "subtitle": subtitle,
-            "queries": queries[:4],
+            "image_prompt": image_prompt,
             "caption": caption,
         }
 
@@ -296,119 +276,35 @@ Reglas:
         return {
             "headline": f"Última hora: {clean_title(title)}",
             "subtitle": "La noticia ya comienza a mover redes.",
-            "queries": fallback_queries(title),
+            "image_prompt": fallback_prompt(title),
             "caption": build_caption(title),
         }
 
 
-def search_wikimedia_image(query):
-    url = "https://commons.wikimedia.org/w/api.php"
-    params = {
-        "action": "query",
-        "format": "json",
-        "generator": "search",
-        "gsrsearch": query,
-        "gsrnamespace": 6,
-        "gsrlimit": 8,
-        "prop": "imageinfo",
-        "iiprop": "url|size|mime",
-    }
+def generate_ai_background(prompt):
+    path = os.path.join(OUTPUT_DIR, "bg.png")
 
     try:
-        r = requests.get(url, params=params, timeout=20)
-        data = r.json()
-        pages = data.get("query", {}).get("pages", {})
+        r = client.images.generate(
+            model=IMAGE_MODEL,
+            prompt=prompt,
+            size="1024x1536",
+            quality=IMAGE_QUALITY,
+        )
+    except BadRequestError as e:
+        print("IMAGE ERROR 1:", e, flush=True)
+        r = client.images.generate(
+            model=IMAGE_MODEL,
+            prompt="Escena hiperrealista, foto real, noticia grabada con celular, ambiente urbano, iluminación real, sin texto.",
+            size="1024x1536",
+            quality=IMAGE_QUALITY,
+        )
 
-        candidates = []
-        for page in pages.values():
-            title = page.get("title", "").lower()
-            if any(bad in title for bad in BAD_IMAGE_WORDS):
-                continue
+    img_bytes = base64.b64decode(r.data[0].b64_json)
+    with open(path, "wb") as f:
+        f.write(img_bytes)
 
-            ii = page.get("imageinfo", [])
-            if not ii:
-                continue
-
-            info = ii[0]
-            mime = info.get("mime", "")
-            img_url = info.get("url", "")
-            width = info.get("width", 0)
-            height = info.get("height", 0)
-
-            if mime not in ["image/jpeg", "image/png", "image/webp"]:
-                continue
-            if width < 900 or height < 600:
-                continue
-            if not img_url:
-                continue
-
-            score = width * height
-            candidates.append((score, img_url))
-
-        if candidates:
-            candidates.sort(reverse=True)
-            return candidates[0][1]
-
-    except Exception as e:
-        print("WIKIMEDIA SEARCH ERROR:", e, flush=True)
-
-    return None
-
-
-def create_fallback_background(title=""):
-    t_low = clean_title(title).lower()
-    base = (18, 24, 36)
-
-    if any(x in t_low for x in ["wendy", "poncho", "aldo de nigris", "famoso", "casa de los famosos", "farandula"]):
-        base = (60, 18, 28)
-    elif any(x in t_low for x in ["mundial", "futbol", "cristiano", "ronaldo", "america", "estadio"]):
-        base = (16, 42, 22)
-    elif any(x in t_low for x in ["trump", "presidente", "gobierno", "politica", "casa blanca"]):
-        base = (20, 28, 52)
-    elif any(x in t_low for x in ["marina", "barco", "mar", "puerto", "huachicol"]):
-        base = (12, 42, 58)
-    elif any(x in t_low for x in ["explosion", "incendio", "desastre", "humo", "accidente"]):
-        base = (52, 26, 14)
-    elif any(x in t_low for x in ["anime", "jujutsu", "dragon ball", "naruto"]):
-        base = (30, 18, 60)
-
-    img = Image.new("RGB", (1080, 1920), base)
-    draw = ImageDraw.Draw(img)
-
-    for y in range(1920):
-        c1 = min(255, int(base[0] + (y / 1920) * 35))
-        c2 = min(255, int(base[1] + (y / 1920) * 35))
-        c3 = min(255, int(base[2] + (y / 1920) * 35))
-        draw.line((0, y, 1080, y), fill=(c1, c2, c3))
-
-    path = os.path.join(OUTPUT_DIR, "bg.jpg")
-    img.save(path, quality=95)
     return path
-
-
-def download_best_background(queries, title=""):
-    all_queries = list(queries) + fallback_queries(title)
-
-    seen = set()
-    for q in all_queries:
-        qn = q.strip().lower()
-        if qn in seen:
-            continue
-        seen.add(qn)
-
-        img_url = search_wikimedia_image(q)
-        if img_url:
-            try:
-                r = requests.get(img_url, timeout=30)
-                img = Image.open(BytesIO(r.content)).convert("RGB")
-                path = os.path.join(OUTPUT_DIR, "bg.jpg")
-                img.save(path, quality=95)
-                print("BACKGROUND OK:", q, flush=True)
-                return path
-            except Exception as e:
-                print("DOWNLOAD ERROR:", e, flush=True)
-
-    return create_fallback_background(title)
 
 
 def cover_crop(img, target_w=1080, target_h=1920):
@@ -520,9 +416,9 @@ def main():
 
     print("TITLE:", title, flush=True)
     print("HEADLINE:", plan["headline"], flush=True)
-    print("QUERIES:", plan["queries"], flush=True)
+    print("IMAGE PROMPT:", plan["image_prompt"], flush=True)
 
-    bg_path = download_best_background(plan["queries"], title)
+    bg_path = generate_ai_background(plan["image_prompt"])
     bg_img = Image.open(bg_path).convert("RGB")
 
     frame_path = add_overlays(bg_img, plan["headline"], plan["subtitle"])
